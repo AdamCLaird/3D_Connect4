@@ -112,12 +112,9 @@
       overflow-x: auto;
     }
 
-    /* ── Desktop: diagonal staircase, NO overlap ── */
-    /* Each grid is positioned so its left edge starts exactly where
-       the previous grid's right edge ends, and steps down a bit.     */
+    /* ── Desktop: diagonal staircase ── */
     #board-desktop {
       position: relative;
-      /* sized by JS */
     }
 
     /* ── Mobile: vertical stack ── */
@@ -203,11 +200,6 @@
     }
 
     /* ── Keystroke capture input ── */
-    /* Positioned at bottom of screen, visually invisible but
-       on-screen so iOS/Android treat it as focusable.
-       font-size:16px prevents iOS auto-zoom on focus.
-       pointer-events:none so taps fall through to cells;
-       we temporarily enable it via JS when focusing.        */
     #capture {
       position: fixed;
       bottom: 0;
@@ -283,6 +275,14 @@
       color: var(--text-muted);
     }
 
+    /* Turn indicator: shows the expected turn number + player slot */
+    .next-up-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
     .next-up-badge {
       display: flex;
       align-items: center;
@@ -306,6 +306,14 @@
       font-weight: 500;
       color: var(--text-muted);
       letter-spacing: 0.05em;
+    }
+
+    /* Small "Turn N · Player M of K" line under the badge */
+    .turn-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
     @media (max-width: 480px) {
@@ -412,14 +420,16 @@
   <div class="divider"></div>
   <div class="next-up">
     <span class="next-up-label">Next up</span>
-    <div class="next-up-badge waiting" id="next-up-badge">—</div>
+    <div class="next-up-info">
+      <div class="next-up-badge waiting" id="next-up-badge">—</div>
+      <div class="turn-meta" id="turn-meta"></div>
+    </div>
   </div>
 </div>
 
 <div class="main">
   <!-- Desktop: diagonal staircase -->
   <div id="board-desktop"></div>
-
   <!-- Mobile: vertical stack -->
   <div id="board-mobile"></div>
 </div>
@@ -428,7 +438,7 @@
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
     <h3>Clear the board?</h3>
-    <p>This will erase all letters for everyone. This cannot be undone.</p>
+    <p>This will erase all letters and play history for everyone. This cannot be undone.</p>
     <div class="modal-btns">
       <button class="btn-secondary" onclick="closeModal()">Cancel</button>
       <button class="btn-modal-danger" onclick="clearBoard()">Clear board</button>
@@ -440,6 +450,9 @@
 <input id="capture" type="text" autocomplete="off" />
 
 <script>
+  /* ─────────────────────────────────────────────────────────────────
+     Firebase setup
+  ───────────────────────────────────────────────────────────────── */
   const firebaseConfig = {
     apiKey:            "AIzaSyBOrtrifGrTsc34UZ-QC1ilZ2H_pC7z6tw",
     authDomain:        "dconnect4-b6d31.firebaseapp.com",
@@ -453,74 +466,135 @@
 
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
-  const boardRef = db.ref('board');
 
-  let boardData = {};
+  // Three separate Firebase refs:
+  //   board/      → { "l-r-c": "LETTER", ... }
+  //   history/    → { "0": { key:"l-r-c", letter:"X" }, "1": ..., ... }
+  //                 Ordered list of every play made (push order = turn order)
+  //   meta/       → { playerCount: N }
+  const boardRef   = db.ref('board');
+  const historyRef = db.ref('history');
+  const metaRef    = db.ref('meta');
+
+  let boardData   = {};   // current cell contents
+  let playHistory = [];   // ordered array of { key, letter } representing each play in sequence
+  let playerCount = 2;    // synced from Firebase
   let selectedCell = null;
 
-  // Player symbols in turn order — one letter per player
-  const SYMBOLS = ['A','B','C','D','E','F','G','H'];
+  /* ─────────────────────────────────────────────────────────────────
+     Turn logic
+     
+     We track the *sequence* of plays via `history`. Each time a
+     player types a letter that IS the correct letter for that turn
+     slot, it gets appended to history. The number of entries in
+     history tells us how many turns have been taken. The next turn
+     index mod playerCount gives us which player slot is up.
 
-  /* ── Next-player logic ─────────────────────────────────────────── */
-  // Count how many cells each symbol occupies, then determine whose
-  // turn it is: the player with the fewest placements goes next.
-  // On a tie (equal counts) we use round-robin order.
-  function computeNextPlayer(numPlayers) {
-    const counts = {};
-    for (let i = 0; i < numPlayers; i++) counts[SYMBOLS[i]] = 0;
-    Object.values(boardData).forEach(letter => {
-      if (counts[letter] !== undefined) counts[letter]++;
-    });
-    // Find the minimum count across active players
-    const min = Math.min(...Object.values(counts));
-    // Return the first player in order who has that minimum count
-    for (let i = 0; i < numPlayers; i++) {
-      if (counts[SYMBOLS[i]] === min) return SYMBOLS[i];
+     We can't know player letters in advance (they type their own
+     initials), so we don't enforce who types what — but we DO track
+     what was actually typed and in what order, so the "next up"
+     display always reflects the correct sequential position.
+
+     "Next up" display logic:
+       turnsTaken = playHistory.length
+       nextSlot   = turnsTaken % playerCount   (0-indexed)
+       
+     To show a helpful letter hint we look at the letters used in
+     slot positions 0, playerCount, 2*playerCount, ... (i.e. every
+     Nth entry) to see if that player has established a letter. If
+     so, show it. Otherwise show the slot number (P1, P2, …).
+  ───────────────────────────────────────────────────────────────── */
+
+  function getPlayerLetterForSlot(slot) {
+    // Walk history and collect all entries at positions: slot, slot+N, slot+2N, ...
+    for (let i = slot; i < playHistory.length; i += playerCount) {
+      const letter = playHistory[i] && playHistory[i].letter;
+      if (letter) return letter;
     }
-    return SYMBOLS[0];
+    return null;
   }
 
   function updateNextUp() {
-    const numPlayers = parseInt(document.getElementById('player-count').value) || 2;
-    const badge = document.getElementById('next-up-badge');
-    if (numPlayers < 2) {
+    const badge  = document.getElementById('next-up-badge');
+    const meta   = document.getElementById('turn-meta');
+
+    if (playerCount < 2) {
       badge.textContent = '—';
-      badge.className = 'next-up-badge waiting';
+      badge.className   = 'next-up-badge waiting';
+      meta.textContent  = '';
       return;
     }
-    const next = computeNextPlayer(numPlayers);
-    badge.textContent = next;
-    badge.className = 'next-up-badge';
+
+    const turnsTaken = playHistory.length;
+    const nextSlot   = turnsTaken % playerCount;   // 0-indexed
+    const turnNumber = turnsTaken + 1;             // human-friendly (1-based)
+
+    // Try to show the known letter for that player slot
+    const knownLetter = getPlayerLetterForSlot(nextSlot);
+    const display     = knownLetter || `P${nextSlot + 1}`;
+
+    badge.textContent = display;
+    badge.className   = 'next-up-badge';
+
+    // e.g. "Turn 7 · Player 1 of 3"
+    meta.textContent = `Turn ${turnNumber} · Player ${nextSlot + 1} of ${playerCount}`;
   }
 
-  document.getElementById('player-count').addEventListener('input', updateNextUp);
+  /* ─────────────────────────────────────────────────────────────────
+     Player count — stored in Firebase so all clients stay in sync
+  ───────────────────────────────────────────────────────────────── */
+  const playerCountInput = document.getElementById('player-count');
 
-  /* ── Layout helpers ─────────────────────────────────────────────── */
+  // Listen for remote changes
+  metaRef.child('playerCount').on('value', snap => {
+    const val = snap.val();
+    if (val !== null && val !== playerCount) {
+      playerCount = val;
+      playerCountInput.value = val;
+      updateNextUp();
+    }
+  });
+
+  // Push local changes to Firebase (debounced 400 ms so rapid typing
+  // doesn't hammer the DB)
+  let pcDebounce;
+  playerCountInput.addEventListener('input', () => {
+    const v = parseInt(playerCountInput.value);
+    if (isNaN(v) || v < 2 || v > 8) return;
+    playerCount = v;
+    updateNextUp();
+    clearTimeout(pcDebounce);
+    pcDebounce = setTimeout(() => {
+      metaRef.child('playerCount').set(v);
+    }, 400);
+  });
+
+  /* ─────────────────────────────────────────────────────────────────
+     Layout helpers
+  ───────────────────────────────────────────────────────────────── */
   function cellPx() {
     return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell')) || 56;
   }
 
   function layerPx() {
     const c = cellPx();
-    return 5 * c + 4 * 4 + 2 * 6; // 5 cells + 4 gaps + 2*padding
+    return 5 * c + 4 * 4 + 2 * 6;
   }
 
-  /* ── Build desktop board ────────────────────────────────────────── */
-  /* Strategy: place each grid so it sits BELOW-RIGHT of the previous
-     one with a small gap — no horizontal overlap at all.
-     We step right by (layerSize + gapBetween) and down by a smaller
-     amount to get the staircase look from the original image.        */
+  /* ─────────────────────────────────────────────────────────────────
+     Board builders
+  ───────────────────────────────────────────────────────────────── */
   function buildDesktop() {
     const wrap = document.getElementById('board-desktop');
     wrap.innerHTML = '';
 
     const ls   = layerPx();
-    const gapH = 12;   // horizontal gap between grids
+    const gapH = 12;
     const stepX = ls + gapH;
-    const stepY = Math.round(ls * 0.28); // vertical drop per layer
+    const stepY = Math.round(ls * 0.28);
 
     const totalW = ls + stepX * 4;
-    const totalH = ls + stepY * 4 + 24; // +24 for labels
+    const totalH = ls + stepY * 4 + 24;
     wrap.style.width  = totalW + 'px';
     wrap.style.height = totalH + 'px';
 
@@ -539,7 +613,6 @@
     }
   }
 
-  /* ── Build mobile board ─────────────────────────────────────────── */
   function buildMobile() {
     const wrap = document.getElementById('board-mobile');
     wrap.innerHTML = '';
@@ -558,7 +631,6 @@
     }
   }
 
-  /* ── Build a single 5×5 grid ────────────────────────────────────── */
   function buildGrid(l) {
     const grid = document.createElement('div');
     grid.className = 'layer';
@@ -585,7 +657,9 @@
     renderBoard();
   }
 
-  /* ── Selection ──────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Cell selection
+  ───────────────────────────────────────────────────────────────── */
   function selectCell(l, r, c) {
     if (selectedCell) clearEditing(selectedCell);
     selectedCell = { layer: l, row: r, col: c };
@@ -593,9 +667,6 @@
 
     const cap = document.getElementById('capture');
     cap.value = '';
-    // Use requestAnimationFrame so the cell click event fully completes
-    // before we focus — prevents the focus from triggering document click
-    // which would call deselectAll() and wipe selectedCell.
     requestAnimationFrame(() => {
       cap.focus({ preventScroll: true });
     });
@@ -614,20 +685,91 @@
     return document.querySelectorAll(`.cell[data-l="${l}"][data-r="${r}"][data-c="${c}"]`);
   }
 
-  /* ── Key capture (desktop + mobile) ────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Key / input capture
+
+     When a letter is typed into a cell we:
+       1. Write it to board/l-r-c  (for display)
+       2. Append to history/       (for turn tracking)
+
+     If the cell already had a letter, we remove that letter's
+     history entry (the most-recent one for that key) so we don't
+     double-count a re-typed cell. Then we add the new one.
+
+     Backspace/Delete removes the letter from board AND removes the
+     most-recent history entry for that cell key.
+  ───────────────────────────────────────────────────────────────── */
   const capture = document.getElementById('capture');
 
-  // Desktop: keydown fires with e.key
+  function cellKey(l, r, c) { return `${l}-${r}-${c}`; }
+
+  /**
+   * Record a play: write letter to board, add to history.
+   * If the cell already has a letter, remove its existing history
+   * entry first so turn counts stay accurate.
+   */
+  function recordPlay(l, r, c, letter) {
+    const key = cellKey(l, r, c);
+    const hadLetter = !!boardData[key];
+
+    // Build atomic multi-path update
+    const updates = {};
+    updates[`board/${key}`] = letter;
+
+    if (hadLetter) {
+      // Find and remove the most-recent history entry for this cell key
+      removeHistoryEntry(key, () => {
+        // After removal, push the new entry
+        historyRef.push({ key, letter });
+      });
+      boardRef.child(key).set(letter);
+    } else {
+      boardRef.child(key).set(letter);
+      historyRef.push({ key, letter });
+    }
+  }
+
+  /**
+   * Remove the most-recent history entry whose .key matches cellKey.
+   * Calls callback when done.
+   */
+  function removeHistoryEntry(cellKey, callback) {
+    historyRef.orderByChild('key').equalTo(cellKey).once('value', snap => {
+      if (!snap.exists()) { callback && callback(); return; }
+      // Get all matching entries, delete the last one (highest push key)
+      const entries = [];
+      snap.forEach(child => entries.push(child.ref));
+      // Push keys are lexicographically ordered, last = most recent
+      const lastRef = entries[entries.length - 1];
+      lastRef.remove().then(callback);
+    });
+  }
+
+  /**
+   * Erase a cell: remove from board, remove all history entries for it.
+   */
+  function eraseCell(l, r, c) {
+    const key = cellKey(l, r, c);
+    if (!boardData[key]) return;  // already empty, nothing to do
+    boardRef.child(key).remove();
+    // Remove ALL history entries for this cell (handles edge cases)
+    historyRef.orderByChild('key').equalTo(key).once('value', snap => {
+      snap.forEach(child => child.ref.remove());
+    });
+  }
+
+  // Desktop keydown
   capture.addEventListener('keydown', e => {
     if (!selectedCell) return;
     const { layer, row, col } = selectedCell;
+
     if (/^[a-zA-Z]$/.test(e.key)) {
       e.preventDefault();
-      boardRef.child(`${layer}-${row}-${col}`).set(e.key.toUpperCase());
+      recordPlay(layer, row, col, e.key.toUpperCase());
       advanceSelection(layer, row, col);
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
-      boardRef.child(`${layer}-${row}-${col}`).remove();
+      eraseCell(layer, row, col);
     } else if (e.key === 'Escape') {
       deselectAll();
     } else if (e.key === 'Tab') {
@@ -636,24 +778,20 @@
     }
   });
 
-  // Mobile: virtual keyboards fire 'input' rather than 'keydown'.
-  // Read the typed character then immediately clear the input so it
-  // stays ready for the next tap.
+  // Mobile virtual keyboard
   capture.addEventListener('input', () => {
     const val = capture.value;
-    capture.value = ''; // reset immediately so input stays empty
+    capture.value = '';
     if (!val || !selectedCell) return;
     const { layer, row, col } = selectedCell;
-    // Take last char in case autocorrect inserted a word
     const char = val.replace(/[^a-zA-Z]/g, '').slice(-1);
     if (char) {
-      boardRef.child(`${layer}-${row}-${col}`).set(char.toUpperCase());
+      recordPlay(layer, row, col, char.toUpperCase());
       advanceSelection(layer, row, col);
     }
   });
 
   document.addEventListener('click', e => {
-    // Don't deselect when tapping a cell or the hidden capture input
     if (!e.target.closest('.cell') && e.target.id !== 'capture') deselectAll();
   });
 
@@ -664,12 +802,28 @@
     selectCell(l, nr, nc);
   }
 
-  /* ── Firebase sync ──────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Firebase listeners
+  ───────────────────────────────────────────────────────────────── */
+
+  // Board letters
   boardRef.on('value', snap => {
     boardData = snap.val() || {};
     renderBoard();
   });
 
+  // Play history (ordered)
+  historyRef.on('value', snap => {
+    playHistory = [];
+    if (snap.exists()) {
+      snap.forEach(child => {
+        playHistory.push(child.val());
+      });
+    }
+    updateNextUp();
+  });
+
+  // Connection status
   db.ref('.info/connected').on('value', snap => {
     const online = snap.val() === true;
     document.getElementById('status-dot').classList.toggle('offline', !online);
@@ -694,7 +848,9 @@
     updateNextUp();
   }
 
-  /* ── Clear ──────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Clear board
+  ───────────────────────────────────────────────────────────────── */
   function confirmClear() {
     document.getElementById('modal-overlay').classList.add('active');
   }
@@ -706,14 +862,20 @@
   function clearBoard() {
     closeModal();
     deselectAll();
-    boardRef.remove().then(() => showToast('Board cleared'));
+    // Clear board and history; preserve playerCount in meta
+    Promise.all([
+      boardRef.remove(),
+      historyRef.remove()
+    ]).then(() => showToast('Board cleared'));
   }
 
   document.getElementById('modal-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeModal();
   });
 
-  /* ── Toast ──────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Toast
+  ───────────────────────────────────────────────────────────────── */
   let toastTimer;
   function showToast(msg) {
     const el = document.getElementById('toast');
@@ -723,7 +885,9 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
   }
 
-  /* ── Init ───────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────────────────────────
+     Init
+  ───────────────────────────────────────────────────────────────── */
   buildAll();
 
   let resizeTimer;
