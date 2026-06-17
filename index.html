@@ -228,6 +228,91 @@
       user-select: text;
     }
 
+    /* ── Player setup bar ── */
+    .player-bar {
+      width: 100%;
+      background: #0d0d22;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .player-bar label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .player-count-input {
+      width: 52px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--cell-border);
+      background: var(--cell-bg);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      outline: none;
+      -moz-appearance: textfield;
+    }
+    .player-count-input::-webkit-outer-spin-button,
+    .player-count-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .player-count-input:focus { border-color: var(--accent); }
+
+    .divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+
+    .next-up {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    .next-up-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .next-up-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accent);
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0;
+      transition: background 0.2s;
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+
+    .next-up-badge.waiting {
+      background: rgba(255,255,255,0.07);
+      border-color: rgba(255,255,255,0.1);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    @media (max-width: 480px) {
+      .player-bar { padding: 10px 16px; gap: 12px; }
+      .next-up { margin-left: 0; }
+    }
+
     /* ── Modal ── */
     .modal-overlay {
       display: none;
@@ -312,6 +397,25 @@
   </div>
 </header>
 
+<!-- Player setup bar -->
+<div class="player-bar">
+  <label for="player-count">Players</label>
+  <input
+    id="player-count"
+    class="player-count-input"
+    type="number"
+    min="2"
+    max="8"
+    value="2"
+    inputmode="numeric"
+  />
+  <div class="divider"></div>
+  <div class="next-up">
+    <span class="next-up-label">Next up</span>
+    <div class="next-up-badge waiting" id="next-up-badge">—</div>
+  </div>
+</div>
+
 <div class="main">
   <!-- Desktop: diagonal staircase -->
   <div id="board-desktop"></div>
@@ -353,6 +457,43 @@
 
   let boardData = {};
   let selectedCell = null;
+
+  // Player symbols in turn order — one letter per player
+  const SYMBOLS = ['A','B','C','D','E','F','G','H'];
+
+  /* ── Next-player logic ─────────────────────────────────────────── */
+  // Count how many cells each symbol occupies, then determine whose
+  // turn it is: the player with the fewest placements goes next.
+  // On a tie (equal counts) we use round-robin order.
+  function computeNextPlayer(numPlayers) {
+    const counts = {};
+    for (let i = 0; i < numPlayers; i++) counts[SYMBOLS[i]] = 0;
+    Object.values(boardData).forEach(letter => {
+      if (counts[letter] !== undefined) counts[letter]++;
+    });
+    // Find the minimum count across active players
+    const min = Math.min(...Object.values(counts));
+    // Return the first player in order who has that minimum count
+    for (let i = 0; i < numPlayers; i++) {
+      if (counts[SYMBOLS[i]] === min) return SYMBOLS[i];
+    }
+    return SYMBOLS[0];
+  }
+
+  function updateNextUp() {
+    const numPlayers = parseInt(document.getElementById('player-count').value) || 2;
+    const badge = document.getElementById('next-up-badge');
+    if (numPlayers < 2) {
+      badge.textContent = '—';
+      badge.className = 'next-up-badge waiting';
+      return;
+    }
+    const next = computeNextPlayer(numPlayers);
+    badge.textContent = next;
+    badge.className = 'next-up-badge';
+  }
+
+  document.getElementById('player-count').addEventListener('input', updateNextUp);
 
   /* ── Layout helpers ─────────────────────────────────────────────── */
   function cellPx() {
@@ -550,6 +691,7 @@
         }
       }
     }
+    updateNextUp();
   }
 
   /* ── Clear ──────────────────────────────────────────────────────── */
