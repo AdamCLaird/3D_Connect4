@@ -203,25 +203,29 @@
     }
 
     /* ── Keystroke capture input ── */
-    /* Must be visible to the browser so mobile keyboards trigger,
-       but visually invisible and out of the way.
-       We use opacity:0 + a real on-screen position (not off-screen)
-       so iOS/Android treat it as focusable and show the keyboard.   */
+    /* Positioned at bottom of screen, visually invisible but
+       on-screen so iOS/Android treat it as focusable.
+       font-size:16px prevents iOS auto-zoom on focus.
+       pointer-events:none so taps fall through to cells;
+       we temporarily enable it via JS when focusing.        */
     #capture {
       position: fixed;
       bottom: 0;
       left: 0;
       width: 100%;
-      height: 1px;
+      height: 2px;
       opacity: 0;
       border: none;
       padding: 0;
-      font-size: 16px; /* prevents iOS auto-zoom on focus */
+      margin: 0;
+      font-size: 16px;
       background: transparent;
       color: transparent;
       caret-color: transparent;
-      z-index: 1;
+      z-index: 0;
       pointer-events: none;
+      -webkit-user-select: text;
+      user-select: text;
     }
 
     /* ── Modal ── */
@@ -446,13 +450,14 @@
     selectedCell = { layer: l, row: r, col: c };
     getCells(l, r, c).forEach(el => el.classList.add('editing'));
 
-    // Focus the capture input so mobile keyboards appear.
-    // Briefly allow pointer-events so iOS/Android treat it as interactive.
     const cap = document.getElementById('capture');
-    cap.style.pointerEvents = 'auto';
     cap.value = '';
-    cap.focus();
-    setTimeout(() => { cap.style.pointerEvents = 'none'; }, 100);
+    // Use requestAnimationFrame so the cell click event fully completes
+    // before we focus — prevents the focus from triggering document click
+    // which would call deselectAll() and wipe selectedCell.
+    requestAnimationFrame(() => {
+      cap.focus({ preventScroll: true });
+    });
   }
 
   function deselectAll() {
@@ -494,20 +499,21 @@
   // Read the typed character then immediately clear the input so it
   // stays ready for the next tap.
   capture.addEventListener('input', () => {
-    if (!selectedCell) return;
     const val = capture.value;
-    capture.value = '';
-    if (!val) return;
+    capture.value = ''; // reset immediately so input stays empty
+    if (!val || !selectedCell) return;
     const { layer, row, col } = selectedCell;
-    const char = val.slice(-1); // last char (handles autocorrect)
-    if (/^[a-zA-Z]$/.test(char)) {
+    // Take last char in case autocorrect inserted a word
+    const char = val.replace(/[^a-zA-Z]/g, '').slice(-1);
+    if (char) {
       boardRef.child(`${layer}-${row}-${col}`).set(char.toUpperCase());
       advanceSelection(layer, row, col);
     }
   });
 
   document.addEventListener('click', e => {
-    if (!e.target.closest('.cell')) deselectAll();
+    // Don't deselect when tapping a cell or the hidden capture input
+    if (!e.target.closest('.cell') && e.target.id !== 'capture') deselectAll();
   });
 
   function advanceSelection(l, r, c) {
