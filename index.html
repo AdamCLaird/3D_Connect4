@@ -199,29 +199,40 @@
       z-index: 10;
     }
 
-    /* ── Keystroke capture input ──
-       Must be physically off-screen (not opacity:0 or height:0) so
-       iOS Safari treats it as a real focusable input and fires 'input'
-       events from the virtual keyboard. top:-200px keeps it invisible
-       while remaining in the accessibility tree.                       */
+    /* ── Letter input (visible, in player bar) ──
+       A real visible input is the only fully reliable way to get iOS
+       Safari to open its keyboard and fire input events. We style it
+       to look intentional rather than trying to hide it.              */
     #capture {
-      position: fixed;
-      top: -200px;
-      left: 0;
-      width: 100%;
-      height: 40px;
-      opacity: 0;
-      border: none;
-      padding: 0;
-      margin: 0;
-      font-size: 16px;   /* prevents iOS auto-zoom */
-      background: transparent;
-      color: transparent;
+      width: 44px;
+      height: 36px;
+      border-radius: 6px;
+      border: 1px solid var(--cell-border);
+      background: var(--cell-bg);
+      color: var(--text-primary);
+      font-size: 18px;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+      outline: none;
       caret-color: transparent;
-      z-index: 0;
-      pointer-events: none;
+      cursor: pointer;
+      padding: 0;
       -webkit-user-select: text;
       user-select: text;
+    }
+
+    #capture:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(233,69,96,0.35);
+      background: rgba(233,69,96,0.1);
+    }
+
+    #capture::placeholder {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.03em;
     }
 
     /* ── Player setup bar ── */
@@ -422,6 +433,9 @@
     inputmode="numeric"
   />
   <div class="divider"></div>
+  <label for="capture" style="font-size:12px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);white-space:nowrap;">Type</label>
+  <input id="capture" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="tap cell" maxlength="2" />
+  <div class="divider"></div>
   <div class="next-up">
     <span class="next-up-label">Next up</span>
     <div class="next-up-info">
@@ -451,7 +465,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<input id="capture" type="text" autocomplete="off" />
 
 <script>
   /* ─────────────────────────────────────────────────────────────────
@@ -688,14 +701,16 @@
 
     const cap = document.getElementById('capture');
     cap.value = '';
-    requestAnimationFrame(() => {
-      cap.focus({ preventScroll: true });
-    });
+    cap.classList.add('has-cell');
+    cap.focus({ preventScroll: true });
   }
 
   function deselectAll() {
     if (selectedCell) clearEditing(selectedCell);
     selectedCell = null;
+    const cap = document.getElementById('capture');
+    cap.classList.remove('has-cell');
+    cap.blur();
   }
 
   function clearEditing({ layer, row, col }) {
@@ -813,7 +828,7 @@
   });
 
   document.addEventListener('click', e => {
-    if (!e.target.closest('.cell') && e.target.id !== 'capture') deselectAll();
+    if (!e.target.closest('.cell') && e.target.id !== 'capture' && !e.target.closest('.player-bar')) deselectAll();
   });
 
   function advanceSelection(l, r, c) {
