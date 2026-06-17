@@ -202,12 +202,25 @@
       z-index: 10;
     }
 
-    /* ── Hidden keystroke capture ── */
+    /* ── Keystroke capture input ── */
+    /* Must be visible to the browser so mobile keyboards trigger,
+       but visually invisible and out of the way.
+       We use opacity:0 + a real on-screen position (not off-screen)
+       so iOS/Android treat it as focusable and show the keyboard.   */
     #capture {
       position: fixed;
-      top: -9999px;
-      left: -9999px;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 1px;
       opacity: 0;
+      border: none;
+      padding: 0;
+      font-size: 16px; /* prevents iOS auto-zoom on focus */
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      z-index: 1;
       pointer-events: none;
     }
 
@@ -432,7 +445,14 @@
     if (selectedCell) clearEditing(selectedCell);
     selectedCell = { layer: l, row: r, col: c };
     getCells(l, r, c).forEach(el => el.classList.add('editing'));
-    document.getElementById('capture').focus();
+
+    // Focus the capture input so mobile keyboards appear.
+    // Briefly allow pointer-events so iOS/Android treat it as interactive.
+    const cap = document.getElementById('capture');
+    cap.style.pointerEvents = 'auto';
+    cap.value = '';
+    cap.focus();
+    setTimeout(() => { cap.style.pointerEvents = 'none'; }, 100);
   }
 
   function deselectAll() {
@@ -448,11 +468,13 @@
     return document.querySelectorAll(`.cell[data-l="${l}"][data-r="${r}"][data-c="${c}"]`);
   }
 
-  /* ── Key capture ────────────────────────────────────────────────── */
-  document.getElementById('capture').addEventListener('keydown', e => {
+  /* ── Key capture (desktop + mobile) ────────────────────────────── */
+  const capture = document.getElementById('capture');
+
+  // Desktop: keydown fires with e.key
+  capture.addEventListener('keydown', e => {
     if (!selectedCell) return;
     const { layer, row, col } = selectedCell;
-
     if (/^[a-zA-Z]$/.test(e.key)) {
       e.preventDefault();
       boardRef.child(`${layer}-${row}-${col}`).set(e.key.toUpperCase());
@@ -464,6 +486,22 @@
       deselectAll();
     } else if (e.key === 'Tab') {
       e.preventDefault();
+      advanceSelection(layer, row, col);
+    }
+  });
+
+  // Mobile: virtual keyboards fire 'input' rather than 'keydown'.
+  // Read the typed character then immediately clear the input so it
+  // stays ready for the next tap.
+  capture.addEventListener('input', () => {
+    if (!selectedCell) return;
+    const val = capture.value;
+    capture.value = '';
+    if (!val) return;
+    const { layer, row, col } = selectedCell;
+    const char = val.slice(-1); // last char (handles autocorrect)
+    if (/^[a-zA-Z]$/.test(char)) {
+      boardRef.child(`${layer}-${row}-${col}`).set(char.toUpperCase());
       advanceSelection(layer, row, col);
     }
   });
