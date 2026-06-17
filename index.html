@@ -199,18 +199,22 @@
       z-index: 10;
     }
 
-    /* ── Keystroke capture input ── */
+    /* ── Keystroke capture input ──
+       Must be physically off-screen (not opacity:0 or height:0) so
+       iOS Safari treats it as a real focusable input and fires 'input'
+       events from the virtual keyboard. top:-200px keeps it invisible
+       while remaining in the accessibility tree.                       */
     #capture {
       position: fixed;
-      bottom: 0;
+      top: -200px;
       left: 0;
       width: 100%;
-      height: 2px;
+      height: 40px;
       opacity: 0;
       border: none;
       padding: 0;
       margin: 0;
-      font-size: 16px;
+      font-size: 16px;   /* prevents iOS auto-zoom */
       background: transparent;
       color: transparent;
       caret-color: transparent;
@@ -505,13 +509,25 @@
      so, show it. Otherwise show the slot number (P1, P2, …).
   ───────────────────────────────────────────────────────────────── */
 
-  function getPlayerLetterForSlot(slot) {
-    // Walk history and collect all entries at positions: slot, slot+N, slot+2N, ...
-    for (let i = slot; i < playHistory.length; i += playerCount) {
-      const letter = playHistory[i] && playHistory[i].letter;
-      if (letter) return letter;
+  /**
+   * Derive the canonical letter for each player slot from history.
+   *
+   * Strategy: walk history in order. The first play goes to slot 0,
+   * second to slot 1, ..., Nth to slot N-1, then wrap. The letter
+   * seen at the FIRST occurrence of each slot is that player's letter.
+   *
+   * Returns an array of length playerCount where each entry is either
+   * a letter string or null if that slot hasn't played yet.
+   */
+  function derivePlayerLetters() {
+    const letters = new Array(playerCount).fill(null);
+    for (let i = 0; i < playHistory.length; i++) {
+      const s = i % playerCount;
+      if (letters[s] === null) {
+        letters[s] = playHistory[i].letter;
+      }
     }
-    return null;
+    return letters;
   }
 
   function updateNextUp() {
@@ -525,19 +541,24 @@
       return;
     }
 
-    const turnsTaken = playHistory.length;
-    const nextSlot   = turnsTaken % playerCount;   // 0-indexed
-    const turnNumber = turnsTaken + 1;             // human-friendly (1-based)
+    const turnsTaken   = playHistory.length;
+    const nextSlot     = turnsTaken % playerCount;   // 0-indexed
+    const turnNumber   = turnsTaken + 1;             // 1-based
 
-    // Try to show the known letter for that player slot
-    const knownLetter = getPlayerLetterForSlot(nextSlot);
-    const display     = knownLetter || `P${nextSlot + 1}`;
+    const playerLetters = derivePlayerLetters();
+    const knownLetter   = playerLetters[nextSlot];
 
-    badge.textContent = display;
+    // Show the letter if known; otherwise show "?" until that player
+    // has made their first play (only happens before round 1 ends)
+    badge.textContent = knownLetter || '?';
     badge.className   = 'next-up-badge';
 
-    // e.g. "Turn 7 · Player 1 of 3"
-    meta.textContent = `Turn ${turnNumber} · Player ${nextSlot + 1} of ${playerCount}`;
+    // Build a compact player-order hint, e.g. "A → L → Z → A → …"
+    // Replace null slots with "?" for readability
+    const allLetters = playerLetters.map(l => l || '?');
+    // Highlight the current slot with brackets: A → [L] → Z
+    allLetters[nextSlot] = `[${allLetters[nextSlot]}]`;
+    meta.textContent = `Turn ${turnNumber}  ·  ${allLetters.join(' → ')}`;
   }
 
   /* ─────────────────────────────────────────────────────────────────
