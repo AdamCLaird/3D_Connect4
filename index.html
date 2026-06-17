@@ -22,7 +22,7 @@
       --text-primary: #eaeaea;
       --text-muted: #8892a4;
       --accent: #e94560;
-      --sidebar-bg: #12122a;
+      --header-bg: #12122a;
       --btn-clear: #e94560;
       --btn-clear-hover: #c73652;
     }
@@ -40,21 +40,21 @@
     /* ── Header ── */
     header {
       width: 100%;
-      padding: 16px 24px;
+      padding: 14px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid rgba(255,255,255,0.07);
-      background: var(--sidebar-bg);
+      background: var(--header-bg);
       position: sticky;
       top: 0;
       z-index: 50;
     }
 
     header h1 {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 600;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
     }
 
     header h1 span { color: var(--accent); }
@@ -62,7 +62,7 @@
     .header-right {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .status-pill {
@@ -103,39 +103,40 @@
     .btn-clear:hover { background: var(--btn-clear-hover); }
     .btn-clear:active { transform: scale(0.97); }
 
-    /* ── Main layout ── */
+    /* ── Main ── */
     .main {
       width: 100%;
-      max-width: 900px;
-      padding: 36px 24px 48px;
+      padding: 40px 24px 60px;
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
+      justify-content: center;
+      overflow-x: auto;
     }
 
-    /* ── Desktop: diagonal staircase ── */
-    .board-desktop {
-      display: block;
+    /* ── Desktop: diagonal staircase, NO overlap ── */
+    /* Each grid is positioned so its left edge starts exactly where
+       the previous grid's right edge ends, and steps down a bit.     */
+    #board-desktop {
       position: relative;
+      /* sized by JS */
     }
 
     /* ── Mobile: vertical stack ── */
-    .board-mobile {
+    #board-mobile {
       display: none;
       flex-direction: column;
       align-items: center;
-      gap: 28px;
+      gap: 32px;
       width: 100%;
     }
 
     @media (max-width: 680px) {
-      :root { --cell: 54px; }
-      .board-desktop { display: none; }
-      .board-mobile { display: flex; }
+      :root { --cell: 52px; }
+      #board-desktop { display: none !important; }
+      #board-mobile  { display: flex !important; }
+      .main { padding: 28px 16px 60px; }
     }
 
-    /* ── Layer (shared styles) ── */
+    /* ── Layer grid ── */
     .layer {
       display: grid;
       grid-template-columns: repeat(5, var(--cell));
@@ -147,18 +148,11 @@
       padding: var(--pad);
     }
 
-    /* Desktop: absolutely positioned */
-    .board-desktop .layer {
-      position: absolute;
-    }
-
-    /* Mobile: normal flow, full label above */
     .mobile-layer-wrap {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 8px;
-      width: 100%;
     }
 
     .layer-label {
@@ -167,13 +161,6 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--accent);
-    }
-
-    /* Desktop label: absolute above each grid */
-    .board-desktop .layer-label {
-      position: absolute;
-      top: -20px;
-      left: 0;
     }
 
     /* ── Cell ── */
@@ -193,7 +180,6 @@
       transition: background 0.12s, border-color 0.12s, transform 0.1s;
       user-select: none;
       outline: none;
-      position: relative;
     }
 
     .cell:hover {
@@ -201,18 +187,19 @@
       border-color: var(--accent);
       transform: scale(1.06);
       z-index: 10;
+      position: relative;
     }
 
     .cell.has-letter {
-      background: #0f3460;
       border-color: var(--accent);
-      color: #fff;
     }
 
     .cell.editing {
       background: rgba(233, 69, 96, 0.2);
       border-color: var(--accent);
       box-shadow: 0 0 0 2px var(--accent);
+      position: relative;
+      z-index: 10;
     }
 
     /* ── Hidden keystroke capture ── */
@@ -241,7 +228,7 @@
       background: #1e1e38;
       border: 1px solid var(--cell-border);
       border-radius: 12px;
-      padding: 28px 32px;
+      padding: 28px 28px;
       width: 300px;
       display: flex;
       flex-direction: column;
@@ -249,9 +236,7 @@
     }
 
     .modal h3 { font-size: 17px; font-weight: 600; }
-
-    .modal p { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
-
+    .modal p  { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
     .modal-btns { display: flex; gap: 10px; justify-content: flex-end; }
 
     .btn-secondary {
@@ -264,7 +249,6 @@
       font-weight: 600;
       cursor: pointer;
     }
-
     .btn-secondary:hover { background: rgba(255,255,255,0.12); }
 
     .btn-modal-danger {
@@ -277,7 +261,6 @@
       font-weight: 600;
       cursor: pointer;
     }
-
     .btn-modal-danger:hover { background: var(--btn-clear-hover); }
 
     /* ── Toast ── */
@@ -296,7 +279,6 @@
       z-index: 200;
       pointer-events: none;
     }
-
     .toast.show { transform: translateX(-50%) translateY(0); }
   </style>
 </head>
@@ -314,16 +296,14 @@
 </header>
 
 <div class="main">
-
   <!-- Desktop: diagonal staircase -->
-  <div class="board-desktop" id="board-desktop"></div>
+  <div id="board-desktop"></div>
 
   <!-- Mobile: vertical stack -->
-  <div class="board-mobile" id="board-mobile"></div>
-
+  <div id="board-mobile"></div>
 </div>
 
-<!-- Modal -->
+<!-- Confirm modal -->
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
     <h3>Clear the board?</h3>
@@ -339,7 +319,6 @@
 <input id="capture" type="text" autocomplete="off" />
 
 <script>
-  // ── FIREBASE CONFIG ─────────────────────────────────────────────────────────
   const firebaseConfig = {
     apiKey:            "AIzaSyBOrtrifGrTsc34UZ-QC1ilZ2H_pC7z6tw",
     authDomain:        "dconnect4-b6d31.firebaseapp.com",
@@ -350,7 +329,6 @@
     appId:             "1:184984622657:web:5e462797533e01fd37d8c0",
     measurementId:     "G-QWDW21S5S7"
   };
-  // ───────────────────────────────────────────────────────────────────────────
 
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
@@ -359,108 +337,81 @@
   let boardData = {};
   let selectedCell = null;
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
-  function cellSize() {
+  /* ── Layout helpers ─────────────────────────────────────────────── */
+  function cellPx() {
     return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell')) || 56;
   }
 
   function layerPx() {
-    const c = cellSize();
-    const gap = 4;
-    const pad = 6;
-    return 5 * c + 4 * gap + 2 * pad; // grid width/height in px
+    const c = cellPx();
+    return 5 * c + 4 * 4 + 2 * 6; // 5 cells + 4 gaps + 2*padding
   }
 
-  // ── Build desktop board (diagonal, no overlap) ───────────────────────────────
+  /* ── Build desktop board ────────────────────────────────────────── */
+  /* Strategy: place each grid so it sits BELOW-RIGHT of the previous
+     one with a small gap — no horizontal overlap at all.
+     We step right by (layerSize + gapBetween) and down by a smaller
+     amount to get the staircase look from the original image.        */
   function buildDesktop() {
-    const el = document.getElementById('board-desktop');
-    el.innerHTML = '';
+    const wrap = document.getElementById('board-desktop');
+    wrap.innerHTML = '';
 
-    const ls = layerPx();
-    // Diagonal step: move enough so grids don't overlap at all
-    // step must be >= ls to guarantee no overlap; use ls + small margin
-    const step = ls + 16;
-    // But that makes it very wide; use a diagonal so total width is reasonable.
-    // We go right by (ls*0.55) and down by (ls*0.45) per step, but ensure
-    // the horizontal step is at least ls so grids don't overlap horizontally.
-    // Since ls*0.55 < ls, grids CAN overlap. Instead use a true staircase:
-    // each layer is offset by exactly its own size (no overlap possible).
-    const sx = Math.round(ls * 0.52);  // horizontal step per layer
-    const sy = Math.round(ls * 0.42);  // vertical step per layer
+    const ls   = layerPx();
+    const gapH = 12;   // horizontal gap between grids
+    const stepX = ls + gapH;
+    const stepY = Math.round(ls * 0.28); // vertical drop per layer
 
-    // With 5 layers the grids overlap if sx < ls. We need sx >= ls to have
-    // zero overlap. But that spreads them far. The original design WANTS a
-    // staircase that looks connected (each layer shares an edge with the next).
-    // To avoid overlap while keeping staircase: sx = ls exactly.
-    // Let's use sx = ls (no horizontal overlap) and sy = ls (no vertical overlap)
-    // but that gives a very spread diagonal. Better: stagger by ~half so they
-    // sit adjacent (touching but not overlapping).
-    // Touching means sx = ls for horizontal, but we want diagonal adjacency.
-    // We'll use sx = ls and sy = small to get a nice staircase feel.
-
-    // Actually cleanest: lay them in a true diagonal where each grid starts
-    // exactly where the previous one ends (corner-to-corner).
-    // That means sx = ls, sy = ls — they share a corner point.
-    // This matches the original image closely.
-    const SX = ls + 8;  // slight gap between grids
-    const SY = Math.round(ls * 0.3); // vertical offset creates staircase feel
-
-    const totalW = ls + SX * 4;
-    const totalH = ls + SY * 4;
-    el.style.width  = totalW + 'px';
-    el.style.height = totalH + 'px';
+    const totalW = ls + stepX * 4;
+    const totalH = ls + stepY * 4 + 24; // +24 for labels
+    wrap.style.width  = totalW + 'px';
+    wrap.style.height = totalH + 'px';
 
     for (let l = 0; l < 5; l++) {
-      const wrap = document.createElement('div');
-      wrap.style.position = 'absolute';
-      wrap.style.left = (SX * l) + 'px';
-      wrap.style.top  = (SY * l) + 'px';
+      const layerWrap = document.createElement('div');
+      layerWrap.style.cssText = `position:absolute; left:${stepX * l}px; top:${stepY * l + 20}px;`;
 
       const label = document.createElement('div');
       label.className = 'layer-label';
-      label.style.position = 'absolute';
-      label.style.top = '-20px';
-      label.style.left = '0';
+      label.style.cssText = 'position:absolute; top:-18px; left:0;';
       label.textContent = `Layer ${l + 1}`;
-      wrap.appendChild(label);
+      layerWrap.appendChild(label);
 
-      const grid = buildGrid(l);
-      grid.style.width  = ls + 'px';
-      grid.style.height = ls + 'px';
-      wrap.appendChild(grid);
-      el.appendChild(wrap);
+      layerWrap.appendChild(buildGrid(l));
+      wrap.appendChild(layerWrap);
     }
   }
 
-  // ── Build mobile board (vertical stack) ──────────────────────────────────────
+  /* ── Build mobile board ─────────────────────────────────────────── */
   function buildMobile() {
-    const el = document.getElementById('board-mobile');
-    el.innerHTML = '';
+    const wrap = document.getElementById('board-mobile');
+    wrap.innerHTML = '';
 
     for (let l = 0; l < 5; l++) {
-      const wrap = document.createElement('div');
-      wrap.className = 'mobile-layer-wrap';
+      const layerWrap = document.createElement('div');
+      layerWrap.className = 'mobile-layer-wrap';
 
       const label = document.createElement('div');
       label.className = 'layer-label';
       label.textContent = `Layer ${l + 1}`;
-      wrap.appendChild(label);
+      layerWrap.appendChild(label);
 
-      wrap.appendChild(buildGrid(l));
-      el.appendChild(wrap);
+      layerWrap.appendChild(buildGrid(l));
+      wrap.appendChild(layerWrap);
     }
   }
 
+  /* ── Build a single 5×5 grid ────────────────────────────────────── */
   function buildGrid(l) {
     const grid = document.createElement('div');
     grid.className = 'layer';
-    grid.id = `layer-grid-${l}`;
 
     for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 5; c++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
-        cell.id = `cell-${l}-${r}-${c}`;
+        cell.dataset.l = l;
+        cell.dataset.r = r;
+        cell.dataset.c = c;
         cell.setAttribute('tabindex', '0');
         cell.setAttribute('aria-label', `Layer ${l+1} row ${r+1} col ${c+1}`);
         cell.addEventListener('click', () => selectCell(l, r, c));
@@ -476,29 +427,28 @@
     renderBoard();
   }
 
-  // ── Cell selection ───────────────────────────────────────────────────────────
+  /* ── Selection ──────────────────────────────────────────────────── */
   function selectCell(l, r, c) {
-    if (selectedCell) {
-      const prev = document.getElementById(`cell-${selectedCell.layer}-${selectedCell.row}-${selectedCell.col}`);
-      if (prev) prev.classList.remove('editing');
-      // also deselect the mirrored cell in the other board
-      const prev2 = document.getElementById(`cell-${selectedCell.layer}-${selectedCell.row}-${selectedCell.col}`);
-      if (prev2) prev2.classList.remove('editing');
-    }
+    if (selectedCell) clearEditing(selectedCell);
     selectedCell = { layer: l, row: r, col: c };
-    document.querySelectorAll(`#cell-${l}-${r}-${c}`).forEach(el => el.classList.add('editing'));
+    getCells(l, r, c).forEach(el => el.classList.add('editing'));
     document.getElementById('capture').focus();
   }
 
   function deselectAll() {
-    if (selectedCell) {
-      const { layer, row, col } = selectedCell;
-      document.querySelectorAll(`#cell-${layer}-${row}-${col}`).forEach(el => el.classList.remove('editing'));
-    }
+    if (selectedCell) clearEditing(selectedCell);
     selectedCell = null;
   }
 
-  // ── Key capture ──────────────────────────────────────────────────────────────
+  function clearEditing({ layer, row, col }) {
+    getCells(layer, row, col).forEach(el => el.classList.remove('editing'));
+  }
+
+  function getCells(l, r, c) {
+    return document.querySelectorAll(`.cell[data-l="${l}"][data-r="${r}"][data-c="${c}"]`);
+  }
+
+  /* ── Key capture ────────────────────────────────────────────────── */
   document.getElementById('capture').addEventListener('keydown', e => {
     if (!selectedCell) return;
     const { layer, row, col } = selectedCell;
@@ -529,7 +479,7 @@
     selectCell(l, nr, nc);
   }
 
-  // ── Firebase ─────────────────────────────────────────────────────────────────
+  /* ── Firebase sync ──────────────────────────────────────────────── */
   boardRef.on('value', snap => {
     boardData = snap.val() || {};
     renderBoard();
@@ -546,8 +496,7 @@
       for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
           const letter = boardData[`${l}-${r}-${c}`] || '';
-          // Update ALL instances (desktop + mobile share same IDs — querySelectorAll)
-          document.querySelectorAll(`#cell-${l}-${r}-${c}`).forEach(el => {
+          getCells(l, r, c).forEach(el => {
             el.textContent = letter;
             el.classList.toggle('has-letter', !!letter);
             if (selectedCell && selectedCell.layer === l && selectedCell.row === r && selectedCell.col === c) {
@@ -559,7 +508,7 @@
     }
   }
 
-  // ── Clear ────────────────────────────────────────────────────────────────────
+  /* ── Clear ──────────────────────────────────────────────────────── */
   function confirmClear() {
     document.getElementById('modal-overlay').classList.add('active');
   }
@@ -578,7 +527,7 @@
     if (e.target === e.currentTarget) closeModal();
   });
 
-  // ── Toast ────────────────────────────────────────────────────────────────────
+  /* ── Toast ──────────────────────────────────────────────────────── */
   let toastTimer;
   function showToast(msg) {
     const el = document.getElementById('toast');
@@ -588,13 +537,13 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
   }
 
-  // ── Init ─────────────────────────────────────────────────────────────────────
+  /* ── Init ───────────────────────────────────────────────────────── */
   buildAll();
 
   let resizeTimer;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { buildAll(); }, 150);
+    resizeTimer = setTimeout(buildAll, 150);
   });
 </script>
 
