@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Connect Four</title>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cell: 52px;
+      --gap: 3px;
+      --board-bg: #1a1a2e;
+      --grid-bg: #16213e;
+      --cell-bg: #0f3460;
+      --cell-hover: #1a4a7a;
+      --cell-border: #2d5986;
+      --cell-active: #e94560;
+      --text-primary: #eaeaea;
+      --text-muted: #8892a4;
+      --accent: #e94560;
+      --accent2: #0f3460;
+      --sidebar-bg: #12122a;
+      --btn-clear: #e94560;
+      --btn-clear-hover: #c73652;
+      --grid-shadow: rgba(233, 69, 96, 0.15);
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--board-bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      width: 100%;
+      padding: 18px 32px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      background: var(--sidebar-bg);
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: var(--text-muted);
+      background: rgba(255,255,255,0.05);
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #2ecc71;
+      flex-shrink: 0;
+    }
+
+    .status-dot.offline { background: #e74c3c; }
+
+    .main {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 40px;
+      padding: 40px 32px;
+      flex: 1;
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    /* ── Board area ── */
+    .board-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .board-label {
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .board {
+      position: relative;
+      /* will hold all 5 grids positioned diagonally */
+    }
+
+    .layer {
+      position: absolute;
+      display: grid;
+      grid-template-columns: repeat(5, var(--cell));
+      grid-template-rows: repeat(5, var(--cell));
+      gap: var(--gap);
+      background: rgba(45, 89, 134, 0.25);
+      border: 1px solid var(--cell-border);
+      border-radius: 6px;
+      padding: 5px;
+      box-shadow: 0 4px 24px var(--grid-shadow);
+      transition: box-shadow 0.2s;
+    }
+
+    .layer:hover {
+      box-shadow: 0 4px 36px rgba(233, 69, 96, 0.2);
+    }
+
+    .layer-label {
+      position: absolute;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .cell {
+      width: var(--cell);
+      height: var(--cell);
+      background: var(--cell-bg);
+      border: 1px solid var(--cell-border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: 0.01em;
+      transition: background 0.12s, border-color 0.12s, transform 0.1s;
+      user-select: none;
+      outline: none;
+      position: relative;
+    }
+
+    .cell:hover {
+      background: var(--cell-hover);
+      border-color: var(--accent);
+      transform: scale(1.06);
+      z-index: 10;
+    }
+
+    .cell.has-letter {
+      background: var(--accent2);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .cell.editing {
+      background: rgba(233, 69, 96, 0.2);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+
+    /* Hidden input for capturing keystrokes */
+    #capture {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding-top: 28px;
+    }
+
+    .sidebar-section {
+      background: var(--sidebar-bg);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      padding: 18px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sidebar-section h2 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 7px;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-danger {
+      background: var(--btn-clear);
+      color: #fff;
+    }
+
+    .btn-danger:hover { background: var(--btn-clear-hover); }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .info-row strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: #1e1e38;
+      border: 1px solid var(--cell-border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal h3 {
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .modal p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .modal-btns {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.07);
+      color: var(--text-primary);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .btn-secondary:hover { background: rgba(255,255,255,0.12); }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: #2d2d4e;
+      color: var(--text-primary);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: transform 0.25s ease;
+      z-index: 200;
+      pointer-events: none;
+    }
+
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* Responsive */
+    @media (max-width: 700px) {
+      :root { --cell: 38px; }
+      .main { flex-direction: column; padding: 20px 12px; gap: 24px; }
+      .sidebar { width: 100%; padding-top: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>3D Connect <span>Four</span></h1>
+  <div class="status-pill">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Connecting…</span>
+  </div>
+</header>
+
+<div class="main">
+  <div class="board-wrap">
+    <div class="board-label">Interactive Board — Click any cell, then type a letter</div>
+    <div class="board" id="board"></div>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h2>Board info</h2>
+      <div class="info-row"><span>Layers</span><strong>5</strong></div>
+      <div class="info-row"><span>Grid</span><strong>5 × 5</strong></div>
+      <div class="info-row"><span>Cells</span><strong>125</strong></div>
+      <div class="info-row"><span>Filled</span><strong id="count-filled">0</strong></div>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>Actions</h2>
+      <button class="btn btn-danger" onclick="confirmClear()">
+        ✕ Clear board
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>How to play</h2>
+      <p style="font-size:13px; color: var(--text-muted); line-height:1.6;">
+        Click a cell to select it, then press any letter key to fill it.<br><br>
+        Click a filled cell and press <strong style="color:var(--text-primary)">Delete</strong> or <strong style="color:var(--text-primary)">Backspace</strong> to clear it.<br><br>
+        Changes sync live to all viewers.
+      </p>
+    </div>
+  </aside>
+</div>
+
+<!-- Confirm clear modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3>Clear the board?</h3>
+    <p>This will erase all letters for everyone viewing the board. This action cannot be undone.</p>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="clearBoard()">Clear board</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Hidden input -->
+<input id="capture" type="text" autocomplete="off" />
+
+<script>
+  // ── FIREBASE CONFIGURATION ──────────────────────────────────────────────────
+  // 🔧 SETUP: Replace these values with your own Firebase project config.
+  // Instructions:
+  //   1. Go to https://console.firebase.google.com/
+  //   2. Create a new project (free Spark plan is fine)
+  //   3. Add a Web App to the project
+  //   4. Copy the firebaseConfig object values here
+  //   5. In the console, go to Realtime Database → Create Database → Start in test mode
+  //   6. Deploy your index.html to GitHub Pages and you're done!
+  //
+  const firebaseConfig = {
+    apiKey: "AIzaSyBOrtrifGrTsc34UZ-QC1ilZ2H_pC7z6tw",
+    authDomain: "dconnect4-b6d31.firebaseapp.com",
+    databaseURL: "https://dconnect4-b6d31-default-rtdb.firebaseio.com",
+    projectId: "dconnect4-b6d31",
+    storageBucket: "dconnect4-b6d31.firebasestorage.app",
+    messagingSenderId: "184984622657",
+    appId: "1:184984622657:web:5e462797533e01fd37d8c0",
+    measurementId: "G-QWDW21S5S7"
+  };
+  // ───────────────────────────────────────────────────────────────────────────
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const boardRef = db.ref('board');
+
+  // ── Layout constants ────────────────────────────────────────────────────────
+  // 5 grids, each offset diagonally so they form the staircase in the screenshot.
+  // The board image shows a diagonal staircase going down-right.
+  const CELL = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell')) || 52;
+  const GAP = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap')) || 3;
+
+  function getCellPx() {
+    return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--cell')) || 52;
+  }
+
+  // Each layer is (5*cell + 4*gap + 10px padding) wide/tall
+  function layerSize() {
+    const c = getCellPx();
+    return 5 * c + 4 * 3 + 10; // ~10px for 5px padding each side
+  }
+
+  // Step between layer origins (diagonal)
+  function stepX() { return layerSize() * 0.55; }
+  function stepY() { return layerSize() * 0.45; }
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let boardData = {}; // key: "L-R-C" → letter
+  let selectedCell = null; // {layer, row, col}
+
+  // ── Build DOM ───────────────────────────────────────────────────────────────
+  const boardEl = document.getElementById('board');
+
+  function buildBoard() {
+    boardEl.innerHTML = '';
+    const ls = layerSize();
+    const sx = stepX();
+    const sy = stepY();
+
+    // Total canvas size
+    const totalW = ls + sx * 4;
+    const totalH = ls + sy * 4;
+    boardEl.style.width = totalW + 'px';
+    boardEl.style.height = totalH + 'px';
+
+    for (let l = 0; l < 5; l++) {
+      const layerDiv = document.createElement('div');
+      layerDiv.className = 'layer';
+      layerDiv.style.left = (sx * l) + 'px';
+      layerDiv.style.top  = (sy * l) + 'px';
+      layerDiv.style.width  = ls + 'px';
+      layerDiv.style.height = ls + 'px';
+
+      // Layer label
+      const labelEl = document.createElement('div');
+      labelEl.className = 'layer-label';
+      labelEl.style.top = '-18px';
+      labelEl.style.left = '0';
+      labelEl.textContent = `Layer ${l + 1}`;
+      layerDiv.appendChild(labelEl);
+
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.id = `cell-${l}-${r}-${c}`;
+          cell.setAttribute('tabindex', '0');
+          cell.setAttribute('aria-label', `Layer ${l+1} row ${r+1} column ${c+1}`);
+
+          cell.addEventListener('click', () => selectCell(l, r, c));
+          cell.addEventListener('keydown', e => {
+            if (e.key === 'Enter' || e.key === ' ') selectCell(l, r, c);
+          });
+
+          layerDiv.appendChild(cell);
+        }
+      }
+      boardEl.appendChild(layerDiv);
+    }
+  }
+
+  function selectCell(l, r, c) {
+    // Deselect previous
+    if (selectedCell) {
+      const prev = document.getElementById(`cell-${selectedCell.layer}-${selectedCell.row}-${selectedCell.col}`);
+      if (prev) prev.classList.remove('editing');
+    }
+    selectedCell = { layer: l, row: r, col: c };
+    const el = document.getElementById(`cell-${l}-${r}-${c}`);
+    el.classList.add('editing');
+    // Focus hidden input to capture keystrokes
+    document.getElementById('capture').focus();
+  }
+
+  function deselectAll() {
+    if (selectedCell) {
+      const prev = document.getElementById(`cell-${selectedCell.layer}-${selectedCell.row}-${selectedCell.col}`);
+      if (prev) prev.classList.remove('editing');
+    }
+    selectedCell = null;
+  }
+
+  // ── Key capture ─────────────────────────────────────────────────────────────
+  document.getElementById('capture').addEventListener('keydown', e => {
+    if (!selectedCell) return;
+    const { layer, row, col } = selectedCell;
+    const key = e.key;
+
+    if (/^[a-zA-Z]$/.test(key)) {
+      e.preventDefault();
+      const letter = key.toUpperCase();
+      const path = `${layer}-${row}-${col}`;
+      boardRef.child(path).set(letter);
+      // Advance selection to next cell in row, then next row
+      advanceSelection(layer, row, col);
+    } else if (key === 'Backspace' || key === 'Delete') {
+      e.preventDefault();
+      const path = `${layer}-${row}-${col}`;
+      boardRef.child(path).remove();
+    } else if (key === 'Escape') {
+      deselectAll();
+    } else if (key === 'Tab') {
+      e.preventDefault();
+      advanceSelection(layer, row, col);
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.cell') && !e.target.closest('#capture')) {
+      deselectAll();
+    }
+  });
+
+  function advanceSelection(l, r, c) {
+    let nc = c + 1, nr = r, nl = l;
+    if (nc >= 5) { nc = 0; nr++; }
+    if (nr >= 5) { nr = 0; }
+    selectCell(nl, nr, nc);
+  }
+
+  // ── Firebase sync ────────────────────────────────────────────────────────────
+  boardRef.on('value', snapshot => {
+    boardData = snapshot.val() || {};
+    renderBoard();
+    updateCount();
+  }, err => {
+    setStatus(false);
+  });
+
+  db.ref('.info/connected').on('value', snap => {
+    setStatus(snap.val() === true);
+  });
+
+  function renderBoard() {
+    // Update all cells
+    for (let l = 0; l < 5; l++) {
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const el = document.getElementById(`cell-${l}-${r}-${c}`);
+          if (!el) continue;
+          const key = `${l}-${r}-${c}`;
+          const letter = boardData[key] || '';
+          el.textContent = letter;
+          if (letter) {
+            el.classList.add('has-letter');
+          } else {
+            el.classList.remove('has-letter');
+          }
+          // Re-apply editing class if still selected
+          if (selectedCell && selectedCell.layer === l && selectedCell.row === r && selectedCell.col === c) {
+            el.classList.add('editing');
+          }
+        }
+      }
+    }
+  }
+
+  function updateCount() {
+    const count = Object.keys(boardData).length;
+    document.getElementById('count-filled').textContent = count;
+  }
+
+  // ── Status indicator ────────────────────────────────────────────────────────
+  function setStatus(online) {
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (online) {
+      dot.classList.remove('offline');
+      text.textContent = 'Live sync';
+    } else {
+      dot.classList.add('offline');
+      text.textContent = 'Offline';
+    }
+  }
+
+  // ── Clear board ─────────────────────────────────────────────────────────────
+  function confirmClear() {
+    document.getElementById('modal-overlay').classList.add('active');
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('active');
+  }
+
+  function clearBoard() {
+    closeModal();
+    deselectAll();
+    boardRef.remove().then(() => {
+      showToast('Board cleared');
+    });
+  }
+
+  // Close modal on overlay click
+  document.getElementById('modal-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+
+  // ── Toast ───────────────────────────────────────────────────────────────────
+  let toastTimer;
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  buildBoard();
+
+  // Rebuild on resize (cell size may change via media query)
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      buildBoard();
+      renderBoard();
+    }, 150);
+  });
+</script>
+
+</body>
+</html>
