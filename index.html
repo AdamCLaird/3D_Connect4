@@ -199,6 +199,53 @@
       z-index: 10;
     }
 
+    /* Most-recently played cell */
+    .cell.last-played {
+      background: rgba(46, 204, 113, 0.18);
+      border-color: #2ecc71;
+      box-shadow: 0 0 0 2px #2ecc71;
+      position: relative;
+      z-index: 9;
+    }
+
+    /* Part of a four-in-a-row */
+    .cell.winner {
+      background: rgba(255, 215, 0, 0.22);
+      border-color: #ffd700;
+      box-shadow: 0 0 0 2px #ffd700, 0 0 12px 2px rgba(255,215,0,0.35);
+      color: #ffd700;
+      position: relative;
+      z-index: 11;
+      animation: winPulse 1.2s ease-in-out infinite alternate;
+    }
+
+    @keyframes winPulse {
+      from { box-shadow: 0 0 0 2px #ffd700, 0 0 8px 1px rgba(255,215,0,0.3); }
+      to   { box-shadow: 0 0 0 2px #ffd700, 0 0 18px 4px rgba(255,215,0,0.6); }
+    }
+
+    /* Win banner */
+    #win-banner {
+      display: none;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e1e38;
+      border: 2px solid #ffd700;
+      border-radius: 12px;
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffd700;
+      letter-spacing: 0.06em;
+      z-index: 300;
+      box-shadow: 0 4px 32px rgba(255,215,0,0.25);
+      text-align: center;
+      white-space: nowrap;
+    }
+    #win-banner.active { display: block; }
+
     /* ── Letter input (visible, in player bar) ──
        A real visible input is the only fully reliable way to get iOS
        Safari to open its keyboard and fire input events. We style it
@@ -419,6 +466,8 @@
     <button class="btn-clear" onclick="confirmClear()">✕ Clear board</button>
   </div>
 </header>
+
+<div id="win-banner"></div>
 
 <!-- Player setup bar -->
 <div class="player-bar">
@@ -856,7 +905,7 @@
         playHistory.push(child.val());
       });
     }
-    updateNextUp();
+    renderBoard(); // re-derives last-played and calls updateNextUp
   });
 
   // Connection status
@@ -866,15 +915,109 @@
     document.getElementById('status-text').textContent = online ? 'Live sync' : 'Offline';
   });
 
-  function renderBoard() {
+  /* ─────────────────────────────────────────────────────────────────
+     Win detection — all 13 direction vectors in a 5×5×5 grid
+     Directions cover: within-layer rows, cols, diagonals, and all
+     cross-layer combinations (layer-only, 2D diagonals across layers,
+     full 3D space diagonals).
+  ───────────────────────────────────────────────────────────────── */
+  const WIN_DIRS = [
+    // Within a single layer
+    [0, 0, 1],   // along columns
+    [0, 1, 0],   // along rows
+    [0, 1, 1],   // diagonal ↘
+    [0, 1,-1],   // diagonal ↙
+    // Across layers (layer index advances by 1)
+    [1, 0, 0],   // straight through layers
+    [1, 1, 0],   // layer + row
+    [1,-1, 0],   // layer - row
+    [1, 0, 1],   // layer + col
+    [1, 0,-1],   // layer - col
+    [1, 1, 1],   // 3D diagonal ↘
+    [1, 1,-1],   // 3D diagonal ↙
+    [1,-1, 1],   // 3D diagonal ↗
+    [1,-1,-1],   // 3D diagonal ↖
+  ];
+
+  /**
+   * Scan boardData for any four-in-a-row of the same letter.
+   * Returns a Set of "l-r-c" keys that are part of a winning line,
+   * plus a map from letter → array of winning line descriptions.
+   */
+  function findWins() {
+    const winCells = new Set();       // all cell keys that are in a winning line
+    const winnerLetters = new Set();  // letters that have won
+
     for (let l = 0; l < 5; l++) {
       for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
-          const letter = boardData[`${l}-${r}-${c}`] || '';
+          const startLetter = boardData[`${l}-${r}-${c}`];
+          if (!startLetter) continue;
+
+          for (const [dl, dr, dc] of WIN_DIRS) {
+            // Try to build a run of 4 from this cell in this direction
+            const line = [];
+            for (let step = 0; step < 4; step++) {
+              const nl = l + dl * step;
+              const nr = r + dr * step;
+              const nc = c + dc * step;
+              if (nl < 0 || nl > 4 || nr < 0 || nr > 4 || nc < 0 || nc > 4) break;
+              const k = `${nl}-${nr}-${nc}`;
+              if (boardData[k] !== startLetter) break;
+              line.push(k);
+            }
+            if (line.length === 4) {
+              line.forEach(k => winCells.add(k));
+              winnerLetters.add(startLetter);
+            }
+          }
+        }
+      }
+    }
+    return { winCells, winnerLetters };
+  }
+
+  function renderBoard() {
+    // Derive last-played key from playHistory
+    const lastEntry = playHistory.length > 0 ? playHistory[playHistory.length - 1] : null;
+    const lastKey   = lastEntry ? lastEntry.key : null;
+
+    // Detect wins
+    const { winCells, winnerLetters } = findWins();
+
+    // Update win banner
+    const banner = document.getElementById('win-banner');
+    if (winnerLetters.size > 0) {
+      const names = [...winnerLetters].join(', ');
+      const plural = winnerLetters.size > 1 ? 'connect four' : 'connect four';
+      banner.textContent = `🏆 ${names} — connect four!`;
+      banner.classList.add('active');
+    } else {
+      banner.classList.remove('active');
+    }
+
+    for (let l = 0; l < 5; l++) {
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const key    = `${l}-${r}-${c}`;
+          const letter = boardData[key] || '';
           getCells(l, r, c).forEach(el => {
             el.textContent = letter;
-            el.classList.toggle('has-letter', !!letter);
-            if (selectedCell && selectedCell.layer === l && selectedCell.row === r && selectedCell.col === c) {
+
+            // Reset dynamic classes, then re-apply in priority order
+            el.classList.remove('has-letter', 'last-played', 'winner', 'editing');
+
+            if (letter) el.classList.add('has-letter');
+
+            // Winner overrides last-played (both can coexist but winner style wins)
+            if (winCells.has(key))                                           el.classList.add('winner');
+            else if (key === lastKey && letter)                              el.classList.add('last-played');
+
+            // Editing highlight (selected cell) always on top
+            if (selectedCell &&
+                selectedCell.layer === l &&
+                selectedCell.row   === r &&
+                selectedCell.col   === c) {
               el.classList.add('editing');
             }
           });
